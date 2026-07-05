@@ -1,0 +1,217 @@
+<!--
+  故障コード検索タブ - 既存の整備解説書ビューワーに組み込むスニペット
+  GAS_URL は既存アプリで使っているものと同じものを使ってください
+-->
+<style>
+  .diag-panel {
+    background: #0d1117;
+    border: 1px solid #00e5ff44;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 0 20px #00e5ff22;
+    color: #e6f7ff;
+  }
+  .diag-panel h2 {
+    color: #00e5ff;
+    text-shadow: 0 0 8px #00e5ff88;
+    margin-top: 0;
+    font-size: 1.1em;
+  }
+  .diag-row {
+    margin-bottom: 14px;
+  }
+  .diag-row label {
+    display: block;
+    font-size: 0.85em;
+    color: #7fd8e8;
+    margin-bottom: 6px;
+  }
+  .diag-row select,
+  .diag-row input {
+    width: 100%;
+    box-sizing: border-box;
+    background: #161b22;
+    border: 1px solid #00e5ff55;
+    color: #e6f7ff;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 1em;
+  }
+  .diag-row select:disabled {
+    opacity: 0.4;
+  }
+  .diag-btn {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(180deg, #00e5ff, #00a8c0);
+    border: none;
+    border-radius: 8px;
+    color: #001318;
+    font-weight: bold;
+    font-size: 1em;
+    box-shadow: 0 0 14px #00e5ff66;
+  }
+  .diag-result {
+    margin-top: 18px;
+    border-top: 1px solid #00e5ff33;
+    padding-top: 14px;
+  }
+  .diag-card {
+    background: #10151c;
+    border-left: 3px solid #00e5ff;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+  .diag-card .code {
+    color: #00e5ff;
+    font-weight: bold;
+    font-size: 1.05em;
+  }
+  .diag-card .title {
+    margin: 4px 0;
+    font-weight: bold;
+  }
+  .diag-card .desc {
+    font-size: 0.9em;
+    color: #c7e8f0;
+    white-space: pre-wrap;
+  }
+  .diag-card a {
+    color: #00e5ff;
+    font-size: 0.85em;
+  }
+  .diag-empty {
+    color: #6ba0ab;
+    font-size: 0.9em;
+    text-align: center;
+    padding: 20px 0;
+  }
+</style>
+
+<div class="diag-panel">
+  <h2>🔧 故障コード検索</h2>
+
+  <div class="diag-row">
+    <label>車種</label>
+    <select id="diagVehicleType">
+      <option value="">選択してください</option>
+    </select>
+  </div>
+
+  <div class="diag-row">
+    <label>年式</label>
+    <select id="diagYear" disabled>
+      <option value="">車種を先に選択</option>
+    </select>
+  </div>
+
+  <div class="diag-row">
+    <label>故障コード</label>
+    <input id="diagCode" type="text" placeholder="例: P0420" disabled>
+  </div>
+
+  <button class="diag-btn" id="diagSearchBtn" disabled>検索</button>
+
+  <div class="diag-result" id="diagResult"></div>
+</div>
+
+<script>
+(function () {
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbzrj4Uk73y29Cx9bJ5bzxE9uBF3lnf7ePxksAc3T6lR-43aDkDReYbOEcc-3XS7YJ8z_g/exec';
+
+  const typeSelect = document.getElementById('diagVehicleType');
+  const yearSelect = document.getElementById('diagYear');
+  const codeInput = document.getElementById('diagCode');
+  const searchBtn = document.getElementById('diagSearchBtn');
+  const resultDiv = document.getElementById('diagResult');
+
+  async function callGas(params) {
+    const url = GAS_URL + '?' + new URLSearchParams(params).toString();
+    const res = await fetch(url);
+    return res.json();
+  }
+
+  async function loadVehicleTypes() {
+    try {
+      const types = await callGas({ action: 'getDiagVehicleTypes' });
+      types.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t;
+        typeSelect.appendChild(opt);
+      });
+    } catch (e) {
+      console.error('車種一覧取得エラー', e);
+    }
+  }
+
+  typeSelect.addEventListener('change', async () => {
+    yearSelect.innerHTML = '<option value="">読み込み中...</option>';
+    yearSelect.disabled = true;
+    codeInput.disabled = true;
+    searchBtn.disabled = true;
+
+    if (!typeSelect.value) {
+      yearSelect.innerHTML = '<option value="">車種を先に選択</option>';
+      return;
+    }
+
+    try {
+      const years = await callGas({ action: 'getDiagYears', vehicleType: typeSelect.value });
+      yearSelect.innerHTML = '<option value="">選択してください</option>';
+      years.forEach(y => {
+        const opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = y;
+        yearSelect.appendChild(opt);
+      });
+      yearSelect.disabled = false;
+    } catch (e) {
+      console.error('年式一覧取得エラー', e);
+    }
+  });
+
+  yearSelect.addEventListener('change', () => {
+    const ready = !!yearSelect.value;
+    codeInput.disabled = !ready;
+    searchBtn.disabled = !ready;
+  });
+
+  searchBtn.addEventListener('click', async () => {
+    if (!codeInput.value.trim()) {
+      resultDiv.innerHTML = '<div class="diag-empty">故障コードを入力してください</div>';
+      return;
+    }
+    resultDiv.innerHTML = '<div class="diag-empty">検索中...</div>';
+
+    try {
+      const rows = await callGas({
+        action: 'searchDiagCode',
+        vehicleType: typeSelect.value,
+        year: yearSelect.value,
+        code: codeInput.value.trim()
+      });
+
+      if (!rows.length) {
+        resultDiv.innerHTML = '<div class="diag-empty">該当する故障コードが見つかりません</div>';
+        return;
+      }
+
+      resultDiv.innerHTML = rows.map(r => `
+        <div class="diag-card">
+          <div class="code">${r.code}</div>
+          <div class="title">${r.title || ''}</div>
+          <div class="desc">${r.description || ''}</div>
+          ${r.pdf_url ? `<a href="${r.pdf_url}" target="_blank">📄 元PDFを開く${r.page ? ' (P.' + r.page + ')' : ''}</a>` : ''}
+        </div>
+      `).join('');
+    } catch (e) {
+      console.error('検索エラー', e);
+      resultDiv.innerHTML = '<div class="diag-empty">検索に失敗しました</div>';
+    }
+  });
+
+  loadVehicleTypes();
+})();
+</script>
